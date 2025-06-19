@@ -1,0 +1,129 @@
+name: Build RDP Manager
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-cpp:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup MinGW
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: x64
+        
+    - name: Build C++ Version
+      run: |
+        g++ -o rdp_manager.exe src/rdp_manager.cpp -luser32 -lwininet -lws2_32 -static-libgcc -static-libstdc++ -mwindows
+        
+    - name: Upload C++ Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rdp-manager-cpp
+        path: rdp_manager.exe
+
+  build-csharp:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0'
+        
+    - name: Build C# Version
+      run: |
+        dotnet publish src/RDPManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o output
+        
+    - name: Upload C# Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rdp-manager-csharp
+        path: output/RDPManager.exe
+
+  create-release:
+    needs: [build-cpp, build-csharp]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download C++ Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: rdp-manager-cpp
+        path: ./cpp-build
+        
+    - name: Download C# Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: rdp-manager-csharp
+        path: ./csharp-build
+        
+    - name: Get current date
+      id: date
+      run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.date.outputs.date }}
+        release_name: RDP Manager v${{ steps.date.outputs.date }}
+        body: |
+          ## Windows远程桌面管理工具 🚀
+          
+          ### 功能特点
+          - ✅ 完全后台运行，无界面
+          - ✅ 快捷键 Ctrl+Shift+R 激活
+          - ✅ 零写入，不留任何痕迹
+          - ✅ 10秒无操作自动关闭
+          - ✅ 支持开机启动
+          
+          ### 下载说明
+          - **rdp_manager_cpp.exe**: C++版本，零依赖，体积小（推荐）
+          - **RDPManager_csharp.exe**: C#版本，功能完整，兼容性好
+          
+          ### 使用方法
+          1. 下载任一版本exe文件
+          2. 以管理员身份运行
+          3. 按 Ctrl+Shift+R 激活程序
+          4. 输入域名获取服务器列表
+          5. 双击服务器进行连接
+          
+          **注意**: 程序需要管理员权限来监听全局快捷键
+        draft: false
+        prerelease: false
+        
+    - name: Upload C++ Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./cpp-build/rdp_manager.exe
+        asset_name: rdp_manager_cpp.exe
+        asset_content_type: application/octet-stream
+        
+    - name: Upload C# Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./csharp-build/RDPManager.exe
+        asset_name: RDPManager_csharp.exe
+        asset_content_type: application/octet-stream
+
